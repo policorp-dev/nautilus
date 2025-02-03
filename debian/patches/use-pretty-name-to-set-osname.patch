@@ -1,22 +1,9 @@
-Index: nautilus/src/gtk/nautilusgtkplacesview.c
+Index: policorp/src/nautilus-pathbar.c
 ===================================================================
---- nautilus.orig/src/gtk/nautilusgtkplacesview.c
-+++ nautilus/src/gtk/nautilusgtkplacesview.c
-@@ -1099,7 +1099,7 @@ update_places (NautilusGtkPlacesView *vi
-   /* Add "Computer" row */
-   file = g_file_new_for_path ("/");
-   icon = g_themed_icon_new_with_default_fallbacks ("drive-harddisk");
--  osname = g_get_os_info (G_OS_INFO_KEY_NAME);
-+  osname = g_get_os_info (G_OS_INFO_KEY_PRETTY_NAME);
- 
-   add_file (view, file, icon, ((osname != NULL) ? osname : _("Operating System")), "/", FALSE);
- 
-Index: nautilus/src/nautilus-pathbar.c
-===================================================================
---- nautilus.orig/src/nautilus-pathbar.c
-+++ nautilus/src/nautilus-pathbar.c
-@@ -243,7 +243,7 @@ nautilus_path_bar_init (NautilusPathBar
-     GtkBuilder *builder;
+--- policorp.orig/src/nautilus-pathbar.c
++++ policorp/src/nautilus-pathbar.c
+@@ -284,7 +284,7 @@ nautilus_path_bar_init (NautilusPathBar
+     GtkEventController *controller;
      g_autoptr (GError) error = NULL;
  
 -    self->os_name = g_get_os_info (G_OS_INFO_KEY_NAME);
@@ -24,13 +11,13 @@ Index: nautilus/src/nautilus-pathbar.c
  
      self->scrolled = gtk_scrolled_window_new ();
      /* Scroll horizontally only and don't use internal scrollbar. */
-Index: nautilus/src/nautilus-properties-window.c
+Index: policorp/src/nautilus-properties-window.c
 ===================================================================
---- nautilus.orig/src/nautilus-properties-window.c
-+++ nautilus/src/nautilus-properties-window.c
-@@ -856,7 +856,7 @@ update_name_field (NautilusPropertiesWin
+--- policorp.orig/src/nautilus-properties-window.c
++++ policorp/src/nautilus-properties-window.c
+@@ -849,7 +849,7 @@ update_name_field (NautilusPropertiesWin
  
-     if (!is_multi_file_window (self) && is_root_directory (get_original_file (self)))
+     if (!is_multi_file_window (self) && is_root_directory (get_file (self)))
      {
 -        os_name = g_get_os_info (G_OS_INFO_KEY_NAME);
 +        os_name = g_get_os_info (G_OS_INFO_KEY_PRETTY_NAME);
