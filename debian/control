@@ -1,8 +1,7 @@
 Source: nautilus
 Section: gnome
 Priority: optional
-Maintainer: Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>
-Uploaders: Amin Bandali <bandali@ubuntu.com>, Jeremy Bícha <jbicha@ubuntu.com>
+Maintainer: Edson Juliano Drosdeck <edson@policorp.com.br>
 Build-Depends: appstream-util <!nocheck>,
                dbus <!nocheck>,
                debhelper-compat (= 13),
@@ -36,8 +35,6 @@ Build-Depends: appstream-util <!nocheck>,
                xvfb <!nocheck>
 Rules-Requires-Root: no
 Homepage: https://wiki.gnome.org/action/show/Apps/Nautilus
-Vcs-Browser: https://salsa.debian.org/gnome-team/nautilus
-Vcs-Git: https://salsa.debian.org/gnome-team/nautilus.git
 Standards-Version: 4.7.0
 
 Package: nautilus
