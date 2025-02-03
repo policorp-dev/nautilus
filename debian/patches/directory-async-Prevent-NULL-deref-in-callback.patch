@@ -1,0 +1,33 @@
+From: Philipp Unger <philipp.unger.1988@gmail.com>
+Date: Sun, 22 Dec 2024 14:54:03 +0100
+Subject: [PATCH] directory-async: Prevent NULL deref in callback
+
+Check for NULL pointer in finish_info_provider and
+info_provider_idle_callback.
+---
+ src/nautilus-directory-async.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/nautilus-directory-async.c b/src/nautilus-directory-async.c
+index 48e295c..9b19ab9 100644
+--- a/src/nautilus-directory-async.c
++++ b/src/nautilus-directory-async.c
+@@ -3704,6 +3704,9 @@ finish_info_provider (NautilusDirectory    *directory,
+                       NautilusFile         *file,
+                       NautilusInfoProvider *provider)
+ {
++    g_return_if_fail (directory != NULL);
++    g_return_if_fail (file != NULL);
++
+     file->details->pending_info_providers =
+         g_list_remove (file->details->pending_info_providers,
+                        provider);
+@@ -3727,6 +3730,8 @@ info_provider_idle_callback (gpointer user_data)
+     response = user_data;
+     directory = response->directory;
+ 
++    g_return_val_if_fail (directory != NULL, FALSE);
++
+     if (response->handle != directory->details->extension_info_in_progress
+         || response->provider != directory->details->extension_info_provider)
+     {

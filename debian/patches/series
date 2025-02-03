@@ -1,0 +1,4 @@
+skip-tracker-test.patch
+Revert-general-React-to-tracker-projects-rename.patch
+directory-async-Prevent-NULL-deref-in-callback.patch
+use-pretty-name-to-set-osname.patch

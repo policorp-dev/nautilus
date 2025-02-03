@@ -1,0 +1,104 @@
+From: =?utf-8?q?Jeremy_B=C3=ADcha?= <jeremy.bicha@canonical.com>
+Date: Tue, 13 Aug 2024 08:33:15 -0400
+Subject: Revert "general: React to tracker projects rename"
+
+This reverts commit 0e6e3946ebfcbaf1c7e2ebbb1300dd3a016ee0e9.
+---
+ README.md                                                        | 2 +-
+ build-aux/flatpak/org.gnome.Nautilus.json                        | 8 ++++----
+ data/tracker/meson.build                                         | 9 ++++-----
+ .../tracker/org.gnome.Nautilus.Tracker3.Miner.Extract.service.in | 4 ++--
+ data/tracker/org.gnome.Nautilus.Tracker3.Miner.Files.service.in  | 4 ++--
+ 5 files changed, 13 insertions(+), 14 deletions(-)
+
+diff --git a/README.md b/README.md
+index 26ebda4..7269d39 100644
+--- a/README.md
++++ b/README.md
+@@ -22,7 +22,7 @@ git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+ 
+ ## Runtime dependencies
+ - [Bubblewrap](https://github.com/projectatomic/bubblewrap) installed. Used for security reasons.
+-- [LocalSearch](https://gitlab.gnome.org/GNOME/localsearch) properly set up and with all features enabled. Used for fast search and metadata extraction, starred files and batch renaming.
++- [Tracker (including tracker-miners)](https://gitlab.gnome.org/GNOME/tracker) properly set up and with all features enabled. Used for fast search and metadata extraction, starred files and batch renaming.
+ 
+ ## Discourse
+ 
+diff --git a/build-aux/flatpak/org.gnome.Nautilus.json b/build-aux/flatpak/org.gnome.Nautilus.json
+index ccf6538..362b933 100644
+--- a/build-aux/flatpak/org.gnome.Nautilus.json
++++ b/build-aux/flatpak/org.gnome.Nautilus.json
+@@ -72,11 +72,11 @@
+       ]
+     },
+     {
+-      "name": "localsearch",
++      "name": "tracker-miners",
+       "buildsystem": "meson",
+       "cleanup": [
+         "/etc",
+-        "/libexec/localsearch-3",
++        "/libexec/tracker-3",
+         "/share/dbus-1/services/org.freedesktop.Tracker3.Miner.Extract.service",
+         "/share/dbus-1/services/org.freedesktop.Tracker3.Miner.Files.service",
+         "/share/dbus-1/services/org.freedesktop.Tracker3.Miner.Files.Control.service"
+@@ -95,8 +95,8 @@
+       "sources": [
+         {
+           "type": "git",
+-          "url": "https://gitlab.gnome.org/GNOME/localsearch.git",
+-          "branch": "main"
++          "url": "https://gitlab.gnome.org/GNOME/tracker-miners.git",
++          "branch": "master"
+         }
+       ]
+     },
+diff --git a/data/tracker/meson.build b/data/tracker/meson.build
+index 2921ca9..5320af1 100644
+--- a/data/tracker/meson.build
++++ b/data/tracker/meson.build
+@@ -1,12 +1,11 @@
+-# Files needed for running LocalSearch (historically known as Tracker) inside
+-# the Flatpak sandbox, for systems which don't have a suitable version of
+-# LocalSearch in the host OS.
++# Files needed for running Tracker inside the Flatpak sandbox, for systems
++# which don't have a suitable version of Tracker in the host OS.
+ #
+ # We must export the .service files from the sandbox so they work on the
+-# session bus. This means the LocalSearch domain name must correspond with the
++# session bus. This means the Tracker domain name must correspond with the
+ # application ID.
+ 
+-domain_ontologies_dir = get_option('datadir') / 'localsearch3' / 'domain-ontologies'
++domain_ontologies_dir = get_option('datadir') / 'tracker3' / 'domain-ontologies'
+ dbus_services_dir = get_option('datadir') / 'dbus-1' / 'services'
+ 
+ tracker_domain_config = configuration_data()
+diff --git a/data/tracker/org.gnome.Nautilus.Tracker3.Miner.Extract.service.in b/data/tracker/org.gnome.Nautilus.Tracker3.Miner.Extract.service.in
+index 23ded45..eb7a87a 100644
+--- a/data/tracker/org.gnome.Nautilus.Tracker3.Miner.Extract.service.in
++++ b/data/tracker/org.gnome.Nautilus.Tracker3.Miner.Extract.service.in
+@@ -1,7 +1,7 @@
+ [D-BUS Service]
+ Name=@application_id@.Tracker3.Miner.Extract
+-Exec=/app/libexec/localsearch-extractor-3 --domain-ontology @domain_rule@
++Exec=/app/libexec/tracker-extract-3 --domain-ontology @domain_rule@
+ 
+-# Miner details needed for localsearch-control
++# Miner details needed for tracker-control
+ Path=/org/freedesktop/Tracker3/Miner/Extract
+ NameSuffix=Miner.Files
+diff --git a/data/tracker/org.gnome.Nautilus.Tracker3.Miner.Files.service.in b/data/tracker/org.gnome.Nautilus.Tracker3.Miner.Files.service.in
+index d770619..4fa7371 100644
+--- a/data/tracker/org.gnome.Nautilus.Tracker3.Miner.Files.service.in
++++ b/data/tracker/org.gnome.Nautilus.Tracker3.Miner.Files.service.in
+@@ -1,7 +1,7 @@
+ [D-BUS Service]
+ Name=@application_id@.Tracker3.Miner.Files
+-Exec=/app/libexec/localsearch-3 --domain-ontology @domain_rule@ --initial-sleep 0
++Exec=/app/libexec/tracker-miner-fs-3 --domain-ontology @domain_rule@ --initial-sleep 0
+ 
+-# Miner details needed for localsearch-control
++# Miner details needed for tracker-control
+ Path=/org/freedesktop/Tracker3/Miner/Files
+ NameSuffix=Miner.Files
