@@ -1008,6 +1008,13 @@ nautilus_file_get_parent_uri_for_display (NautilusFile *file)
     {
         g_autofree gchar *parse_name = g_file_get_parse_name (parent);
 
+        /* URI decode the string if it is a network connection*/
+        if (g_uri_is_valid (parse_name, G_URI_FLAGS_NONE, NULL))
+        {
+            g_autofree gchar *temp = parse_name;
+            parse_name = g_uri_unescape_string (temp, NULL);
+        }
+
         /* Ensure a trailing slash to emphasize it is a directory */
         if (g_str_has_suffix (parse_name, G_DIR_SEPARATOR_S))
         {
@@ -4452,6 +4459,14 @@ get_filesystem_remote (NautilusFile *file,
 
     if (parent != NULL && parent->details->filesystem_info_is_up_to_date)
     {
+        if (nautilus_file_is_regular_file (file))
+        {
+            file->details->filesystem_remote = parent->details->filesystem_remote;
+            file->details->filesystem_readonly = parent->details->filesystem_readonly;
+            file->details->filesystem_use_preview = parent->details->filesystem_use_preview;
+            file->details->filesystem_info_is_up_to_date = TRUE;
+        }
+
         return parent->details->filesystem_remote;
     }
     else
@@ -4510,9 +4525,9 @@ nautilus_file_should_show_thumbnail (NautilusFile *file)
     /* If the thumbnail has already been created, don't care about the size
      * of the original file.
      */
-    if (nautilus_thumbnail_is_mimetype_limited_by_size (mime_type) &&
-        file->details->thumbnail_path == NULL &&
-        nautilus_file_get_size (file) > cached_thumbnail_limit)
+    if (file->details->thumbnail_path == NULL &&
+        nautilus_file_get_size (file) > cached_thumbnail_limit &&
+        nautilus_thumbnail_is_mimetype_limited_by_size (mime_type))
     {
         return FALSE;
     }
@@ -4581,30 +4596,6 @@ sort_keyword_list_and_remove_duplicates (GList *keywords)
     return keywords;
 }
 
-static void
-clean_up_metadata_keywords (NautilusFile  *file,
-                            GList        **metadata_keywords)
-{
-    g_autoptr (NautilusFile) parent_file = nautilus_file_get_parent (file);
-    gboolean parent_can_write = parent_file == NULL || nautilus_file_can_write (parent_file);
-
-    if (parent_can_write)
-    {
-        return;
-    }
-
-    for (GList *l = *metadata_keywords; l != NULL;)
-    {
-        const char *keyword = l->data;
-        l = l->next;
-
-        if (strcmp (keyword, NAUTILUS_FILE_EMBLEM_NAME_CANT_WRITE) != 0)
-        {
-            *metadata_keywords = g_list_delete_link (*metadata_keywords, l);
-        }
-    }
-}
-
 /**
  * nautilus_file_get_keywords
  *
@@ -4640,7 +4631,6 @@ nautilus_file_get_keywords (NautilusFile *file)
     /* Free only the container array. The strings are owned by the list now. */
     g_free (metadata_strv);
 
-    clean_up_metadata_keywords (file, &metadata_keywords);
     keywords = g_list_concat (keywords, metadata_keywords);
 
     return sort_keyword_list_and_remove_duplicates (keywords);
@@ -4757,7 +4747,8 @@ nautilus_file_get_thumbnail_icon (NautilusFile          *file,
 
     icon = NULL;
 
-    if (file->details->thumbnail != NULL)
+    if (file->details->thumbnail_path != NULL &&
+        file->details->thumbnail != NULL)
     {
         GdkTexture *texture = file->details->thumbnail;
         double width = gdk_texture_get_width (texture) / scale;
@@ -4845,8 +4836,8 @@ nautilus_file_get_icon (NautilusFile          *file,
     g_debug ("Called file_get_icon(), at size %d", size);
 
     if (flags & NAUTILUS_FILE_ICON_FLAGS_USE_THUMBNAILS &&
-        nautilus_file_should_show_thumbnail (file) &&
-        size >= NAUTILUS_THUMBNAIL_MINIMUM_ICON_SIZE)
+        size >= NAUTILUS_THUMBNAIL_MINIMUM_ICON_SIZE &&
+        nautilus_file_should_show_thumbnail (file))
     {
         icon = nautilus_file_get_thumbnail_icon (file, size, scale, flags);
     }
@@ -7905,6 +7896,13 @@ nautilus_file_set_thumbnail (NautilusFile *file,
         {
             file->details->thumbnail = gdk_texture_new_for_pixbuf (pixbuf);
             file->details->thumbnail_mtime = thumb_mtime;
+
+            if (file->details->thumbnail_path == NULL)
+            {
+                g_autofree gchar *uri = nautilus_file_get_uri (file);
+
+                file->details->thumbnail_path = nautilus_thumbnail_get_path_for_uri (uri);
+            }
         }
         else
         {

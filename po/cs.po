@@ -22,8 +22,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: nautilus\n"
 "Report-Msgid-Bugs-To: https://gitlab.gnome.org/GNOME/nautilus/issues\n"
-"POT-Creation-Date: 2024-09-23 13:04+0000\n"
-"PO-Revision-Date: 2024-10-13 16:58+0200\n"
+"POT-Creation-Date: 2024-09-23 12:58+0000\n"
+"PO-Revision-Date: 2024-10-13 17:04+0200\n"
 "Last-Translator: Daniel Rusek <mail@asciiwolf.com>\n"
 "Language-Team: Czech <gnome-cs-list@gnome.org>\n"
 "Language: cs\n"
@@ -4660,9 +4660,11 @@ msgid "Show/Hide Sidebar"
 msgstr "Zobrazit/skrýt postranní panel"
 
 #: src/resources/gtk/help-overlay.ui:272
+#, fuzzy
+#| msgid "Current Folder Menu"
 msgctxt "shortcut window"
-msgid "Show/Hide Action Menu"
-msgstr "Zobrazit/skrýt nabídku činností"
+msgid "Open Current Folder Menu"
+msgstr "Nabídka aktuální složky"
 
 #: src/resources/gtk/help-overlay.ui:278
 msgctxt "shortcut window"
@@ -5820,6 +5822,10 @@ msgstr "Postranní panel"
 #: src/gtk/nautilusgtkplacessidebar.c:3539
 msgid "List of common shortcuts, mountpoints, and bookmarks."
 msgstr "Seznam častých zkratek, bodů připojení a záložek."
+
+#~ msgctxt "shortcut window"
+#~ msgid "Show/Hide Action Menu"
+#~ msgstr "Zobrazit/skrýt nabídku činností"
 
 #~ msgid "Do you want to empty the trash before you unmount?"
 #~ msgstr "Chcete před odpojením vysypat koš?"

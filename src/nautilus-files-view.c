@@ -362,6 +362,12 @@ get_view_item (GListModel *model,
     return NAUTILUS_VIEW_ITEM (gtk_tree_list_row_get_item (row));
 }
 
+static gboolean
+list_len_is_one (GList *list)
+{
+    return list != NULL && list->next == NULL;
+}
+
 /*
  * Floating Bar code
  */
@@ -2368,7 +2374,7 @@ nautilus_files_view_compress_dialog_new (NautilusFilesView *view)
 {
     NautilusDirectory *containing_directory;
     g_autolist (NautilusFile) selection = nautilus_view_get_selection (NAUTILUS_VIEW (view));
-    gboolean is_single_selection = selection != NULL && selection->next == NULL;
+    gboolean is_single_selection = list_len_is_one (selection);
     g_autofree char *common_prefix = NULL;
     g_autofree char *uri = NULL;
     CompressCallbackData *data;
@@ -2552,7 +2558,7 @@ action_open_console (GSimpleAction *action,
                      gpointer       user_data)
 {
     g_autolist (NautilusFile) selection = nautilus_view_get_selection (NAUTILUS_VIEW (user_data));
-    gboolean is_single_selection = selection != NULL && selection->next == NULL;
+    gboolean is_single_selection = list_len_is_one (selection);
 
     g_return_if_fail (is_single_selection);
 
@@ -4311,7 +4317,7 @@ real_remove_files (NautilusFilesView *self,
                    NautilusDirectory *directory)
 {
     NautilusFilesViewPrivate *priv = nautilus_files_view_get_instance_private (self);
-    g_autoptr (GList) items = NULL;
+    g_autoptr (GHashTable) items = g_hash_table_new (NULL, NULL);
 
     for (GList *l = files; l != NULL; l = l->next)
     {
@@ -4320,7 +4326,7 @@ real_remove_files (NautilusFilesView *self,
         item = nautilus_view_model_get_item_for_file (priv->model, l->data);
         if (item != NULL)
         {
-            items = g_list_prepend (items, item);
+            g_hash_table_insert (items, item, l->data);
         }
     }
 
@@ -5058,15 +5064,6 @@ trash_or_delete_files (GtkWindow         *parent_window,
     g_list_free_full (locations, g_object_unref);
 }
 
-static GdkTexture *
-get_menu_icon_for_file (NautilusFile *file,
-                        GtkWidget    *widget)
-{
-    int scale = gtk_widget_get_scale_factor (widget);
-
-    return nautilus_file_get_icon_texture (file, 16, scale, 0);
-}
-
 static GList *
 get_extension_selection_menu_items (NautilusFilesView *view)
 {
@@ -5463,7 +5460,6 @@ add_script_to_scripts_menus (NautilusFilesView *view,
     const gchar *name;
     g_autofree gchar *uri = NULL;
     g_autofree gchar *escaped_uri = NULL;
-    GdkTexture *mimetype_icon;
     gchar *action_name, *detailed_action_name;
     ScriptLaunchParameters *launch_parameters;
     GAction *action;
@@ -5492,13 +5488,6 @@ add_script_to_scripts_menus (NautilusFilesView *view,
 
     detailed_action_name = g_strconcat ("view.", action_name, NULL);
     menu_item = g_menu_item_new (name, detailed_action_name);
-
-    mimetype_icon = get_menu_icon_for_file (file, GTK_WIDGET (view));
-    if (mimetype_icon != NULL)
-    {
-        g_menu_item_set_icon (menu_item, G_ICON (mimetype_icon));
-        g_object_unref (mimetype_icon);
-    }
 
     g_menu_append_item (menu, menu_item);
 
@@ -5711,7 +5700,6 @@ add_template_to_templates_menus (NautilusFilesView *view,
     char *uri;
     const char *name;
     g_autofree gchar *escaped_uri = NULL;
-    GdkTexture *mimetype_icon;
     char *action_name, *detailed_action_name;
     CreateTemplateParameters *parameters;
     GAction *action;
@@ -5736,13 +5724,6 @@ add_template_to_templates_menus (NautilusFilesView *view,
     detailed_action_name = g_strconcat ("view.", action_name, NULL);
     label = escape_underscores (name);
     menu_item = g_menu_item_new (label, detailed_action_name);
-
-    mimetype_icon = get_menu_icon_for_file (file, GTK_WIDGET (view));
-    if (mimetype_icon != NULL)
-    {
-        g_menu_item_set_icon (menu_item, G_ICON (mimetype_icon));
-        g_object_unref (mimetype_icon);
-    }
 
     g_menu_append_item (menu, menu_item);
 
@@ -6118,6 +6099,11 @@ copy_or_move_selection (NautilusFilesView *view,
     }
 
     selection = nautilus_files_view_get_selection_for_file_transfer (view);
+
+    if (selection == NULL)
+    {
+        return;
+    }
 
     gtk_file_dialog_set_title (dialog, title);
     gtk_file_dialog_set_accept_label (dialog, _("_Select"));
@@ -6700,7 +6686,7 @@ can_run_in_terminal (GList *selection)
 {
     NautilusFile *file;
 
-    if (g_list_length (selection) != 1)
+    if (!list_len_is_one (selection))
     {
         return FALSE;
     }
@@ -6771,7 +6757,7 @@ can_set_wallpaper (GList *selection)
 {
     NautilusFile *file;
 
-    if (g_list_length (selection) != 1)
+    if (!list_len_is_one (selection))
     {
         return FALSE;
     }
@@ -7157,7 +7143,7 @@ action_copy_network_address (GSimpleAction *action,
     NautilusFilesView *self = NAUTILUS_FILES_VIEW (user_data);
     g_autolist (NautilusFile) selection = nautilus_view_get_selection (NAUTILUS_VIEW (self));
 
-    g_return_if_fail (selection != NULL && selection->next == NULL);
+    g_return_if_fail (list_len_is_one (selection));
 
     g_autofree char *address = nautilus_file_get_activation_uri (NAUTILUS_FILE (selection->data));
 
@@ -7472,7 +7458,7 @@ can_restore_from_trash (GList *files)
 
     if (files != NULL)
     {
-        if (g_list_length (files) == 1)
+        if (list_len_is_one (files))
         {
             original_file = nautilus_file_get_trash_original_file (files->data);
         }
@@ -7482,7 +7468,7 @@ can_restore_from_trash (GList *files)
             if (original_dirs_hash != NULL)
             {
                 original_dirs = g_hash_table_get_keys (original_dirs_hash);
-                if (g_list_length (original_dirs) == 1)
+                if (list_len_is_one (original_dirs))
                 {
                     original_dir = nautilus_file_ref (NAUTILUS_FILE (original_dirs->data));
                 }
@@ -7607,7 +7593,6 @@ real_update_actions_state (NautilusFilesView *view)
     NautilusMode mode = nautilus_window_slot_get_mode (priv->slot);
     g_autolist (NautilusFile) selection = NULL;
     GList *l;
-    gint selection_count;
     gboolean is_network_view = NAUTILUS_IS_NETWORK_VIEW (priv->list_base);
     gboolean selection_contains_home_dir;
     gboolean selection_contains_recent;
@@ -7647,7 +7632,6 @@ real_update_actions_state (NautilusFilesView *view)
     view_action_group = priv->view_action_group;
 
     selection = nautilus_view_get_selection (NAUTILUS_VIEW (view));
-    selection_count = g_list_length (selection);
     selection_contains_home_dir = home_dir_in_selection (selection);
     selection_contains_recent = showing_recent_directory (view);
     selection_contains_starred = showing_starred_directory (view);
@@ -7659,18 +7643,18 @@ real_update_actions_state (NautilusFilesView *view)
     can_create_files = nautilus_files_view_supports_creating_files (view);
     can_delete_files =
         can_delete_all (selection) &&
-        selection_count != 0 &&
+        selection != NULL &&
         !selection_contains_home_dir;
     can_trash_files =
         can_trash_all (selection) &&
-        selection_count != 0 &&
+        selection != NULL &&
         !selection_contains_home_dir;
-    can_copy_files = selection_count != 0;
+    can_copy_files = selection != NULL;
     can_move_files = can_delete_files && !selection_contains_recent &&
                      !selection_contains_starred;
-    can_paste_files_into = (selection_count == 1 &&
+    can_paste_files_into = (list_len_is_one (selection) &&
                             can_paste_into_file (NAUTILUS_FILE (selection->data)));
-    can_extract_files = selection_count != 0 &&
+    can_extract_files = selection != NULL &&
                         can_extract_all (selection);
     can_extract_here = nautilus_files_view_supports_extract_here (view);
     handles_all_files_to_extract = nautilus_handles_all_files_to_extract (selection);
@@ -7688,12 +7672,14 @@ real_update_actions_state (NautilusFilesView *view)
                                          "new-folder-with-selection");
     g_simple_action_set_enabled (G_SIMPLE_ACTION (action),
                                  mode == NAUTILUS_MODE_BROWSE &&
-                                 can_create_files && can_delete_files && (selection_count > 1) && !selection_contains_recent
+                                 can_create_files && can_delete_files &&
+                                 (selection != NULL && selection->next != NULL) &&
+                                 !selection_contains_recent
                                  && !selection_contains_starred);
 
     action = g_action_map_lookup_action (G_ACTION_MAP (view_action_group),
                                          "rename");
-    if (selection_count > 1)
+    if (selection != NULL && selection->next != NULL)
     {
         g_simple_action_set_enabled (G_SIMPLE_ACTION (action),
                                      nautilus_file_can_rename_files (selection));
@@ -7701,7 +7687,7 @@ real_update_actions_state (NautilusFilesView *view)
     else
     {
         g_simple_action_set_enabled (G_SIMPLE_ACTION (action),
-                                     selection_count == 1 &&
+                                     list_len_is_one (selection) &&
                                      nautilus_file_can_rename (selection->data));
     }
 
@@ -7731,11 +7717,11 @@ real_update_actions_state (NautilusFilesView *view)
                                          "open-item-location");
 
     g_simple_action_set_enabled (G_SIMPLE_ACTION (action),
-                                 selection_count == 1 &&
+                                 list_len_is_one (selection) &&
                                  (selection_contains_recent || selection_contains_search ||
                                   selection_contains_starred));
 
-    item_opens_in_view = selection_count != 0;
+    item_opens_in_view = selection != NULL;
 
     for (l = selection; l != NULL; l = l->next)
     {
@@ -7758,14 +7744,14 @@ real_update_actions_state (NautilusFilesView *view)
                                          "open-with-default-application");
     g_simple_action_set_enabled (G_SIMPLE_ACTION (action),
                                  mode == NAUTILUS_MODE_BROWSE &&
-                                 selection_count != 0);
+                                 selection != NULL);
 
     /* Allow to select a different application to open the item */
     action = g_action_map_lookup_action (G_ACTION_MAP (view_action_group),
                                          "open-with-other-application");
     g_simple_action_set_enabled (G_SIMPLE_ACTION (action),
                                  mode == NAUTILUS_MODE_BROWSE &&
-                                 selection_count > 0);
+                                 selection != NULL);
 
     action = g_action_map_lookup_action (G_ACTION_MAP (view_action_group),
                                          "open-item-new-tab");
@@ -7830,7 +7816,7 @@ real_update_actions_state (NautilusFilesView *view)
                                          "remove-from-recent");
     g_simple_action_set_enabled (G_SIMPLE_ACTION (action),
                                  mode == NAUTILUS_MODE_BROWSE &&
-                                 selection_contains_recent && selection_count > 0);
+                                 selection_contains_recent && selection != NULL);
 
     action = g_action_map_lookup_action (G_ACTION_MAP (view_action_group),
                                          "cut");
@@ -7875,7 +7861,7 @@ real_update_actions_state (NautilusFilesView *view)
                                  !selection_contains_starred);
     action = g_action_map_lookup_action (G_ACTION_MAP (view_action_group),
                                          "preview-selection");
-    g_simple_action_set_enabled (G_SIMPLE_ACTION (action), selection_count != 0);
+    g_simple_action_set_enabled (G_SIMPLE_ACTION (action), selection != NULL);
     action = g_action_map_lookup_action (G_ACTION_MAP (view_action_group),
                                          "copy-current-location");
     g_simple_action_set_enabled (G_SIMPLE_ACTION (action),
@@ -7888,9 +7874,9 @@ real_update_actions_state (NautilusFilesView *view)
     show_mount = (selection != NULL);
     show_unmount = (selection != NULL);
     show_eject = (selection != NULL);
-    show_start = (selection != NULL && selection_count == 1);
-    show_stop = (selection != NULL && selection_count == 1);
-    show_detect_media = (selection != NULL && selection_count == 1);
+    show_start = list_len_is_one (selection);
+    show_stop = list_len_is_one (selection);
+    show_detect_media = list_len_is_one (selection);
     for (l = selection; l != NULL && (show_mount || show_unmount
                                       || show_eject
                                       || show_start || show_stop
@@ -8006,7 +7992,7 @@ real_update_actions_state (NautilusFilesView *view)
                                          "console");
     g_simple_action_set_enabled (G_SIMPLE_ACTION (action),
                                  mode == NAUTILUS_MODE_BROWSE &&
-                                 selection_count == 1 && nautilus_file_is_directory (selection->data) &&
+                                 list_len_is_one (selection) && nautilus_file_is_directory (selection->data) &&
                                  nautilus_dbus_launcher_is_available (nautilus_dbus_launcher_get (),
                                                                       NAUTILUS_DBUS_LAUNCHER_CONSOLE));
     action = g_action_map_lookup_action (G_ACTION_MAP (view_action_group),
@@ -8020,9 +8006,9 @@ real_update_actions_state (NautilusFilesView *view)
     g_simple_action_set_enabled (G_SIMPLE_ACTION (action),
                                  mode == NAUTILUS_MODE_BROWSE &&
                                  (is_network_view ?
-                                  (selection_count == 1 &&
+                                  (list_len_is_one (selection) &&
                                    nautilus_file_can_unmount (selection->data)) :
-                                  (selection_count != 0 ||
+                                  (selection != NULL ||
                                    (!selection_contains_recent &&
                                     !selection_contains_search &&
                                     !selection_contains_starred))));
@@ -8120,7 +8106,7 @@ real_update_actions_state (NautilusFilesView *view)
                                          "copy-network-address");
     g_simple_action_set_enabled (G_SIMPLE_ACTION (action),
                                  (is_network_view &&
-                                  selection_count == 1 &&
+                                  list_len_is_one (selection) &&
                                   nautilus_file_has_activation_uri (selection->data)));
 
     action = g_action_map_lookup_action (G_ACTION_MAP (view_action_group),
@@ -8149,7 +8135,6 @@ update_selection_menu (NautilusFilesView *view,
     NautilusMode mode = nautilus_window_slot_get_mode (priv->slot);
     g_autolist (NautilusFile) selection = NULL;
     GList *l;
-    gint selection_count;
     gboolean show_app;
     gboolean show_run;
     gboolean show_extract;
@@ -8170,19 +8155,19 @@ update_selection_menu (NautilusFilesView *view,
     GDriveStartStopType start_stop_type;
 
     selection = nautilus_view_get_selection (NAUTILUS_VIEW (view));
-    selection_count = g_list_length (selection);
 
     show_mount = (selection != NULL);
     show_unmount = (selection != NULL);
     show_eject = (selection != NULL);
-    show_start = (selection != NULL && selection_count == 1);
-    show_stop = (selection != NULL && selection_count == 1);
-    show_detect_media = (selection != NULL && selection_count == 1);
-    item_opens_in_view = selection_count != 0;
+    show_start = list_len_is_one (selection);
+    show_stop = list_len_is_one (selection);
+    show_detect_media = list_len_is_one (selection);
+    item_opens_in_view = (selection != NULL);
     start_stop_type = G_DRIVE_START_STOP_TYPE_UNKNOWN;
 
     if (mode == NAUTILUS_MODE_BROWSE)
     {
+        guint selection_count = g_list_length (selection);
         item_label = g_strdup_printf (ngettext ("New Folder with Selection (%'d Item)",
                                                 "New Folder with Selection (%'d Items)",
                                                 selection_count),
@@ -8928,12 +8913,6 @@ load_directory (NautilusFilesView *view,
     priv->loading = TRUE;
 
     setup_loading_floating_bar (view);
-
-    /* Update menus when directory is empty, before going to new
-     * location, so they won't have any false lingering knowledge
-     * of old selection.
-     */
-    schedule_update_context_menus (view);
 
     g_clear_pointer (&priv->subdirectories_loading, g_list_free);
     while (priv->subdirectory_list != NULL)

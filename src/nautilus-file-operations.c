@@ -2498,27 +2498,29 @@ has_trash_files (GMount *mount)
     return res;
 }
 
-static GtkWidget *
+static AdwDialog *
 create_empty_trash_prompt (UnmountData *data)
 {
-    GtkWidget *dialog;
+    AdwDialog *dialog;
     g_autofree gchar *name = g_mount_get_name (data->mount);
-    g_autofree gchar *trash_dialog = g_strdup_printf (_("Empty the trash to free "
-                                                        "up space on “%s”. All trashed items will "
-                                                        "be permanently deleted."), name);
 
-    dialog = adw_message_dialog_new (data->parent_window,
-                                     _("Empty Trash Before Ejecting?"),
-                                     trash_dialog);
-    adw_message_dialog_add_responses (ADW_MESSAGE_DIALOG (dialog),
-                                      "cancel", _("Cancel"),
-                                      "do-not-empty", _("Do _Not Empty"),
-                                      "empty-trash", _("_Empty"),
-                                      NULL);
-    adw_message_dialog_set_default_response (ADW_MESSAGE_DIALOG (dialog), "empty-trash");
-    adw_message_dialog_set_close_response (ADW_MESSAGE_DIALOG (dialog), "cancel");
-    adw_message_dialog_set_response_appearance (ADW_MESSAGE_DIALOG (dialog),
-                                                "empty-trash", ADW_RESPONSE_DESTRUCTIVE);
+    dialog = adw_alert_dialog_new (_("Empty Trash Before Ejecting?"),
+                                   NULL);
+    adw_alert_dialog_format_body (ADW_ALERT_DIALOG (dialog),
+                                  _("Empty the trash to free "
+                                    "up space on “%s”. All trashed items will "
+                                    "be permanently deleted."), name);
+    adw_alert_dialog_add_responses (ADW_ALERT_DIALOG (dialog),
+                                    "cancel", _("Cancel"),
+                                    "do-not-empty", _("Do _Not Empty"),
+                                    /* Translators: This is an action in a dialog to
+                                     * to clear trashed items. */
+                                    "empty-trash", _("_Empty"),
+                                    NULL);
+    adw_alert_dialog_set_default_response (ADW_ALERT_DIALOG (dialog), "empty-trash");
+    adw_alert_dialog_set_close_response (ADW_ALERT_DIALOG (dialog), "cancel");
+    adw_alert_dialog_set_response_appearance (ADW_ALERT_DIALOG (dialog),
+                                              "empty-trash", ADW_RESPONSE_DESTRUCTIVE);
 
     return dialog;
 }
@@ -2598,11 +2600,11 @@ nautilus_file_operations_unmount_mount_full (GtkWindow               *parent_win
 
     if (check_trash && has_trash_files (mount))
     {
-        GtkWidget *dialog;
+        AdwDialog *dialog;
         dialog = create_empty_trash_prompt (data);
 
         g_signal_connect (dialog, "response", G_CALLBACK (empty_trash_prompt_cb), data);
-        gtk_window_present (GTK_WINDOW (dialog));
+        adw_dialog_present (dialog, GTK_WIDGET (parent_window));
         return;
     }
 
@@ -5142,9 +5144,6 @@ retry:
         gboolean is_merge;
         FileConflictResponse *response;
 
-        source_is_directory = is_dir (src, job->cancellable);
-        destination_is_directory = is_dir (dest, job->cancellable);
-
         g_error_free (error);
 
         if (unique_names)
@@ -5153,6 +5152,9 @@ retry:
             dest = get_unique_target_file (src, dest_dir, job->cancellable, same_fs, *dest_fs_type, unique_name_nr++);
             goto retry;
         }
+
+        source_is_directory = is_dir (src, job->cancellable);
+        destination_is_directory = is_dir (dest, job->cancellable);
 
         is_merge = FALSE;
 
@@ -8206,11 +8208,11 @@ report_extract_final_progress (ExtractJob *extract_job)
                                             extract_job->destination_directory);
     basename_dest = get_basename (extract_job->destination_directory);
 
-    /* The g_list_length function is used intentionally here instead of the
+    /* extract_job->source_files variable is used intentionally here instead of the
      * extract_job->total_files variable to avoid printing wrong basename in
      * the case of skipped files.
      */
-    if (g_list_length (extract_job->source_files) == 1)
+    if (extract_job->source_files != NULL && extract_job->source_files->next == NULL)
     {
         GFile *source_file;
         g_autofree gchar *basename = NULL;

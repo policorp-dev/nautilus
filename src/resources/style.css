@@ -38,7 +38,7 @@
 
 #NautilusPathBar {
   background-color: color-mix(in srgb, currentColor 10%, transparent);
-  border-radius: 6px;
+  border-radius: 9px;
 }
 #NautilusPathBar > menubutton {
   margin: 0px;
@@ -55,16 +55,16 @@
 
 /* Match sidebar's rounded corners on the "start" side. */
 #NautilusPathBar > scrolledwindow:dir(ltr) undershoot.left {
-  border-radius: 6px 0px 0px 6px;
+  border-radius: 9px 0px 0px 9px;
 }
 #NautilusPathBar > scrolledwindow:dir(rtl) undershoot.right {
-  border-radius: 0px 6px 6px 0px;
+  border-radius: 0px 9px 9px 0px;
 }
 
 #NautilusPathButton {
   margin: 3px;
   min-width: 8px;
-  border-radius: 4px;
+  border-radius: 7px;
   padding-top: 0px;
   padding-bottom: 0px;
 }
@@ -186,7 +186,7 @@
 
 .nautilus-network-view listview > row,
 .nautilus-list-view columnview > listview > row {
-  border-radius: 6px;
+  border-radius: 9px;
 }
 
 /* GTK unconditionally sets padding on GtkColumnViewCell, even with .data-table.
@@ -260,16 +260,19 @@ placesview list {
   padding: 2px;
 }
 
+.view picture {
+  filter: drop-shadow(0px 1px 1px rgba(0,0,0,0.3));
+}
+
 .view .thumbnail {
   background: url('/org/gnome/nautilus/Checkerboard.png') repeat;
   border-radius: 2px;
   /* Draw a shin and outline to meld better with full-color icons */
-  box-shadow: 0px 0px 0px 1px var(--shade-color),
+  box-shadow: 0px 1px 1px 1px rgba(0,0,0,0.18),
+              0px 0px 0px 1px var(--shade-color),
               0px 2px 0px 0px var(--shade-color);
-}
-
-.view picture {
-  filter: drop-shadow(0px 1px 1px rgba(0,0,0,0.3));
+  /* Disable drop-shadows for thumbnails, box-shadow already covers it */
+  filter: none;
 }
 
 .nautilus-network-view {
