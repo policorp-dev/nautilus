@@ -136,14 +136,6 @@ real_get_icon_size (NautilusListBase *list_base_view)
     return get_icon_size_for_zoom_level (self->zoom_level);
 }
 
-static GtkWidget *
-real_get_view_ui (NautilusListBase *list_base_view)
-{
-    NautilusListView *self = NAUTILUS_LIST_VIEW (list_base_view);
-
-    return GTK_WIDGET (self->view_ui);
-}
-
 static int
 real_get_zoom_level (NautilusListBase *list_base_view)
 {
@@ -410,7 +402,7 @@ create_view_ui (NautilusListView *self)
                                     GTK_ACCESSIBLE_PROPERTY_LABEL,
                                     _("Content View"),
                                     GTK_ACCESSIBLE_PROPERTY_ROLE_DESCRIPTION,
-                                    _("View of the current folder"),
+                                    _("View of the current location"),
                                     -1);
 
     /* While we don't want to use GTK's click activation, we'll let it handle
@@ -429,8 +421,6 @@ create_column_editor (NautilusListView *view)
 
     file = nautilus_list_base_get_directory_as_file (NAUTILUS_LIST_BASE (view));
     column_chooser = nautilus_column_chooser_new (file);
-    gtk_window_set_transient_for (GTK_WINDOW (column_chooser),
-                                  GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (view))));
 
     g_signal_connect_swapped (column_chooser, "changed",
                               G_CALLBACK (apply_columns_settings),
@@ -449,7 +439,7 @@ nautilus_list_view_present_column_editor (NautilusListView *self)
                                    (gpointer *) &self->column_editor);
     }
 
-    gtk_window_present (GTK_WINDOW (self->column_editor));
+    adw_dialog_present (ADW_DIALOG (self->column_editor), GTK_WIDGET (self));
 }
 
 static void
@@ -486,6 +476,15 @@ real_get_sort_state (NautilusListBase *list_base)
     reversed = gtk_column_view_sorter_get_primary_sort_order (column_view_sorter);
 
     return g_variant_take_ref (g_variant_new ("(sb)", sort_text, reversed));
+}
+
+static void
+real_set_enable_rubberband (NautilusListBase *list_base,
+                            gboolean          enabled)
+{
+    NautilusListView *self = NAUTILUS_LIST_VIEW (list_base);
+
+    gtk_column_view_set_enable_rubberband (self->view_ui, enabled);
 }
 
 static void
@@ -1237,9 +1236,9 @@ nautilus_list_view_class_init (NautilusListViewClass *klass)
     list_base_view_class->get_icon_size = real_get_icon_size;
     list_base_view_class->get_sort_state = real_get_sort_state;
     list_base_view_class->get_view_info = real_get_view_info;
-    list_base_view_class->get_view_ui = real_get_view_ui;
     list_base_view_class->get_zoom_level = real_get_zoom_level;
     list_base_view_class->scroll_to = real_scroll_to;
+    list_base_view_class->set_enable_rubberband = real_set_enable_rubberband;
     list_base_view_class->set_sort_state = real_set_sort_state;
     list_base_view_class->set_zoom_level = real_set_zoom_level;
     list_base_view_class->setup_directory = nautilus_list_view_setup_directory;

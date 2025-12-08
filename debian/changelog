@@ -1,8 +1,28 @@
-nautilus (47.Policorp-2) stable; urgency=medium
+nautilus (48.Policorp-2) stable; urgency=medium
 
-  * updated version in Policorp
+  * Updated version in Policorp to gnome 48
 
- -- Edson Juliano Drosdeck <edson@policorp.com.br>  Mon, 03 Feb 2025 18:53:18 +0000
+ -- Edson Juliano Drosdeck <edson@policorp.com.br>  Tue, 11 Mar 2025 18:59:33 +0000
+
+nautilus (48~beta-2) unstable; urgency=medium
+
+  * Remove tracker revert patch
+  * Update Depends to localsearch/tinysparql
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Thu, 20 Feb 2025 06:59:16 -0500
+
+nautilus (48~beta-1) unstable; urgency=medium
+
+  * New upstream release
+  * Bump minimum GTK4
+  * Run wrap-and-sort
+  * Stop installing tracker domain ontology: no longer provided or needed
+  * Remove Suggests: totem, evince
+  * Remove ancient Breaks/Replaces
+  * Remove plugin crash patch: applied in new release
+  * Update localsearch revert patch
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Wed, 12 Feb 2025 16:12:36 -0500
 
 nautilus (47.1-2) unstable; urgency=medium
 

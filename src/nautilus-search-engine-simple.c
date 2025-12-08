@@ -488,7 +488,6 @@ search_thread_func (gpointer user_data)
     const char *id;
 
     data = user_data;
-
     /* Insert id for toplevel directory into visited */
     dir = g_queue_peek_head (data->directories);
     info = g_file_query_info (dir, G_FILE_ATTRIBUTE_ID_FILE, 0, data->cancellable, NULL);

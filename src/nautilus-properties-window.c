@@ -81,7 +81,7 @@ typedef struct
 
 struct _NautilusPropertiesWindow
 {
-    AdwWindow parent_instance;
+    AdwDialog parent_instance;
 
     GList *files;
 
@@ -452,6 +452,7 @@ static void is_directory_ready_callback (NautilusFile *file,
                                          gpointer      data);
 static void cancel_group_change_callback (GroupChange *change);
 static void cancel_owner_change_callback (OwnerChange *change);
+static gboolean all_can_set_permissions (GList *file_list);
 static void update_owner_row (AdwComboRow     *row,
                               PermissionsInfo *permissions_info);
 static void update_group_row (AdwComboRow     *row,
@@ -467,7 +468,7 @@ static void refresh_extension_model_pages (NautilusPropertiesWindow *self);
 static gboolean is_root_directory (NautilusFile *file);
 static gboolean is_volume_properties (NautilusPropertiesWindow *self);
 
-G_DEFINE_TYPE (NautilusPropertiesWindow, nautilus_properties_window, ADW_TYPE_WINDOW);
+G_DEFINE_TYPE (NautilusPropertiesWindow, nautilus_properties_window, ADW_TYPE_DIALOG);
 
 static gboolean
 is_multi_file_window (NautilusPropertiesWindow *self)
@@ -572,11 +573,6 @@ update_properties_window_icon (NautilusPropertiesWindow *self)
     gint pixel_size;
 
     get_image_for_properties_window (self, &name, &paintable);
-
-    if (name != NULL)
-    {
-        gtk_window_set_icon_name (GTK_WINDOW (self), name);
-    }
 
     pixel_size = MAX (gdk_paintable_get_intrinsic_width (paintable),
                       gdk_paintable_get_intrinsic_width (paintable));
@@ -1297,6 +1293,8 @@ properties_window_update (NautilusPropertiesWindow *self,
         update_image_widget (self);
         update_name_field (self);
         update_permissions_navigation_row (self, permissions_info);
+        adw_banner_set_revealed (self->owner_permission_banner,
+                                 !all_can_set_permissions (self->files));
         update_owner_row (self->owner_row, permissions_info);
         update_group_row (self->group_row, permissions_info);
         update_execution_row (GTK_WIDGET (self->execution_row), permissions_info);
@@ -1328,7 +1326,13 @@ update_files_callback (gpointer data)
     if (self->files == NULL)
     {
         /* Close the window if no files are left */
-        gtk_window_destroy (GTK_WINDOW (self));
+        adw_dialog_close (ADW_DIALOG (self));
+
+        if (self->permissions_dialog != NULL)
+        {
+            /* Also close enclosed permissions dialog */
+            adw_dialog_close (ADW_DIALOG (self->permissions_dialog));
+        }
     }
     else
     {
@@ -1794,18 +1798,16 @@ unschedule_or_cancel_owner_change (NautilusPropertiesWindow *self)
 }
 
 static void
-changed_owner_callback (AdwComboRow              *row,
-                        GParamSpec               *pspec,
-                        NautilusPropertiesWindow *self)
+changed_owner_callback (NautilusPropertiesWindow *self)
 {
-    guint selected_pos = adw_combo_row_get_selected (row);
+    guint selected_pos = adw_combo_row_get_selected (self->owner_row);
     g_assert (NAUTILUS_IS_PROPERTIES_WINDOW (self));
 
     if (selected_pos != GTK_INVALID_LIST_POSITION)
     {
         NautilusFile *file = get_file (self);
 
-        GListModel *list = adw_combo_row_get_model (row);
+        GListModel *list = adw_combo_row_get_model (self->owner_row);
         const gchar *selected_owner_str = gtk_string_list_get_string (GTK_STRING_LIST (list), selected_pos);
         gsize owner_name_length = get_first_word_length (selected_owner_str);
         g_autofree gchar *new_owner_name = g_strndup (selected_owner_str, owner_name_length);
@@ -1851,9 +1853,6 @@ update_owner_row (AdwComboRow     *row,
     NautilusPropertiesWindow *self = permissions_info->window;
     gboolean provide_dropdown = (!permissions_info->is_multi_file_window
                                  && nautilus_file_can_set_owner (get_file (self)));
-    gboolean had_dropdown = gtk_widget_is_sensitive (GTK_WIDGET (row));
-
-    gtk_widget_set_sensitive (GTK_WIDGET (row), provide_dropdown);
 
     /* check if should provide dropdown */
     if (provide_dropdown)
@@ -1867,14 +1866,6 @@ update_owner_row (AdwComboRow     *row,
 
         /* display current owner */
         select_ownership_row_entry (row, owner_name, string_list_item_starts_with_word);
-
-        if (!had_dropdown)
-        {
-            /* Update file when selection changes. */
-            g_signal_connect (row, "notify::selected",
-                              G_CALLBACK (changed_owner_callback),
-                              self);
-        }
     }
     else
     {
@@ -1884,8 +1875,6 @@ update_owner_row (AdwComboRow     *row,
         {
             owner_name = g_strdup (_("Multiple"));
         }
-
-        g_signal_handlers_disconnect_by_func (row, G_CALLBACK (changed_owner_callback), self);
 
         ownership_row_set_single_entry (row, owner_name, string_list_item_starts_with_word);
     }
@@ -2551,6 +2540,7 @@ open_in_disks (NautilusPropertiesWindow *self)
 {
     NautilusDBusLauncher *launcher = nautilus_dbus_launcher_get ();
     GVariant *parameters;
+    GtkWindow *toplevel;
 
     g_return_if_fail (self->device_identifier != NULL);
 
@@ -2558,10 +2548,11 @@ open_in_disks (NautilusPropertiesWindow *self)
                                        "@aay [], {'options': <{'block-device': <%s>}> })",
                                        self->device_identifier);
 
+    toplevel = GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (self)));
     nautilus_dbus_launcher_call (launcher,
                                  NAUTILUS_DBUS_LAUNCHER_DISKS,
                                  "CommandLine", parameters,
-                                 GTK_WINDOW (self));
+                                 toplevel);
 }
 
 static void
@@ -2797,7 +2788,10 @@ start_long_operation (NautilusPropertiesWindow *self)
 static void
 end_long_operation (NautilusPropertiesWindow *self)
 {
-    if (gtk_native_get_surface (GTK_NATIVE (self)) != NULL &&
+    GtkNative *native;
+
+    native = gtk_widget_get_native (GTK_WIDGET (self));
+    if (gtk_native_get_surface (native) != NULL &&
         self->long_operation_underway == 1)
     {
         /* finished !! */
@@ -2814,11 +2808,13 @@ permission_change_callback (NautilusFile *file,
 {
     g_autoptr (NautilusPropertiesWindow) self = NAUTILUS_PROPERTIES_WINDOW (callback_data);
     g_assert (self != NULL);
+    GtkWindow *toplevel;
 
     end_long_operation (self);
 
     /* Report the error if it's an error. */
-    nautilus_report_error_setting_permissions (file, error, GTK_WINDOW (self));
+    toplevel = GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (self)));
+    nautilus_report_error_setting_permissions (file, error, toplevel);
 }
 
 static void
@@ -3704,22 +3700,6 @@ create_properties_window (StartupData *startup_data)
 
     window->files = nautilus_file_list_copy (startup_data->files);
 
-    if (startup_data->parent_widget)
-    {
-        gtk_window_set_display (GTK_WINDOW (window),
-                                gtk_widget_get_display (startup_data->parent_widget));
-    }
-
-    if (startup_data->parent_window)
-    {
-        gtk_window_set_transient_for (GTK_WINDOW (window), startup_data->parent_window);
-    }
-
-    if (startup_data->startup_id)
-    {
-        gtk_window_set_startup_id (GTK_WINDOW (window), startup_data->startup_id);
-    }
-
     for (l = window->files; l != NULL; l = l->next)
     {
         NautilusFile *file;
@@ -3873,7 +3853,7 @@ is_directory_ready_callback (NautilusFile *file,
 
         remove_pending (startup_data, FALSE, TRUE);
 
-        gtk_window_present (GTK_WINDOW (new_window));
+        adw_dialog_present (ADW_DIALOG (new_window), GTK_WIDGET (startup_data->parent_window));
         g_signal_connect (GTK_WIDGET (new_window), "destroy",
                           G_CALLBACK (widget_on_destroy), startup_data);
 
@@ -4077,6 +4057,7 @@ select_image_button_callback (GtkWidget                *widget,
     g_autoptr (GtkFileDialog) dialog = gtk_file_dialog_new ();
     g_autoptr (GtkFileFilter) filter = gtk_file_filter_new ();
     NautilusFile *file = get_file (self);
+    GtkWindow *toplevel;
 
     gtk_file_dialog_set_title (dialog, _("Select Custom Icon"));
     gtk_file_dialog_set_accept_label (dialog, _("_Select"));
@@ -4097,8 +4078,9 @@ select_image_button_callback (GtkWidget                *widget,
         }
     }
 
+    toplevel = GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (self)));
     gtk_file_dialog_open (dialog,
-                          GTK_WINDOW (self),
+                          toplevel,
                           NULL,
                           (GAsyncReadyCallback) custom_icon_file_chooser_response_cb,
                           self);
@@ -4114,10 +4096,6 @@ nautilus_properties_window_class_init (NautilusPropertiesWindowClass *klass)
     oclass = G_OBJECT_CLASS (klass);
     oclass->dispose = real_dispose;
     oclass->finalize = real_finalize;
-
-    gtk_widget_class_add_binding (widget_class,
-                                  GDK_KEY_Escape, 0,
-                                  (GtkShortcutFunc) gtk_window_close, NULL);
 
     gtk_widget_class_set_template_from_resource (widget_class, "/org/gnome/nautilus/ui/nautilus-properties-window.ui");
 
@@ -4185,6 +4163,7 @@ nautilus_properties_window_class_init (NautilusPropertiesWindowClass *klass)
     gtk_widget_class_bind_template_callback (widget_class, navigate_permissions_page);
     gtk_widget_class_bind_template_callback (widget_class, reset_icon);
     gtk_widget_class_bind_template_callback (widget_class, select_image_button_callback);
+    gtk_widget_class_bind_template_callback (widget_class, changed_owner_callback);
     gtk_widget_class_bind_template_callback (widget_class, on_change_permissions_clicked);
 }
 

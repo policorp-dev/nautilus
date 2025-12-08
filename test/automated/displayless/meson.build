@@ -1,16 +1,4 @@
-trackertestutils = dependency('tracker-testutils-3.0', required: false)
-
-if not trackertestutils.found()
-  tracker_sandbox = find_program('localsearch')
-  subcommand = ['test-sandbox']
-else
-   tracker_sandbox = find_program(trackertestutils.get_pkgconfig_variable('command'))
-   subcommand = []
-endif
-
-if not tracker_sandbox.found()
-  error('Either tracker-testutils-3.0 dependency or localsearch command are necessary')
-endif
+tracker_sandbox = find_program('localsearch')
 
 tests = [
   ['test-directory', [
@@ -85,7 +73,7 @@ foreach t: tracker_tests
   test(
     t[0],
     tracker_sandbox,
-    args: subcommand + ['--store-tmpdir', '--index-recursive-tmpdir', test_exe],
+    args: ['test-sandbox', '--store-tmpdir', '--index-recursive-tmpdir', test_exe],
     env: [
       test_env,
       'G_TEST_BUILDDIR=@0@'.format(meson.current_build_dir()),

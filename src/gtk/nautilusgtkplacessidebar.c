@@ -1070,7 +1070,7 @@ update_places (NautilusGtkPlacesSidebar *sidebar)
       g_free (mount_uri);
       g_free (tooltip);
     }
-  
+
 
   g_list_free_full (network_volumes, g_object_unref);
   g_list_free_full (network_mounts, g_object_unref);
@@ -1542,7 +1542,7 @@ drag_drop_callback (GtkDropTarget    *target,
               actions = gdk_drag_get_selected_action (drag);
           }
           #endif
-          
+
           emit_drag_perform_drop (sidebar,
                                   dest_file,
                                   g_value_get_boxed (value),
@@ -3473,6 +3473,7 @@ nautilus_gtk_places_sidebar_init (NautilusGtkPlacesSidebar *sidebar)
                               list_box_sort_func, NULL, NULL);
   gtk_list_box_set_selection_mode (GTK_LIST_BOX (sidebar->list_box), GTK_SELECTION_SINGLE);
   gtk_list_box_set_activate_on_single_click (GTK_LIST_BOX (sidebar->list_box), TRUE);
+  gtk_list_box_set_tab_behavior (GTK_LIST_BOX (sidebar->list_box), GTK_LIST_TAB_ITEM);
 
   g_signal_connect (sidebar->list_box, "row-activated",
                     G_CALLBACK (on_row_activated), sidebar);

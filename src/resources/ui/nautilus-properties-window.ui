@@ -1,13 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <interface>
   <requires lib="gtk" version="4.0"/>
-  <template class="NautilusPropertiesWindow" parent="AdwWindow">
+  <template class="NautilusPropertiesWindow" parent="AdwDialog">
     <property name="title" translatable="yes">Properties</property>
-    <property name="modal">True</property>
-    <property name="width-request">360</property>
-    <property name="height-request">294</property>
-    <property name="default-width">480</property>
-    <child>
+    <property name="content-width">480</property>
+    <property name="child">
       <object class="AdwToastOverlay" id="toast_overlay">
         <property name="child">
           <object class="AdwNavigationView" id="nav_view">
@@ -562,14 +559,13 @@
                                       <object class="AdwPreferencesGroup">
                                         <child>
                                           <object class="AdwComboRow" id="owner_row">
-                                            <property name="sensitive">False</property>
-                                            <property name="activatable">False</property>
                                             <property name="title" translatable="yes">_Owner</property>
                                             <property name="use-underline">True</property>
                                             <property name="use-markup">False</property>
                                             <property name="expression">
                                               <lookup type="GtkStringObject" name="string"/>
                                             </property>
+                                            <signal name="notify::selected" handler="changed_owner_callback" object="NautilusPropertiesWindow" swapped="yes"/>
                                           </object>
                                         </child>
                                         <child>
@@ -640,12 +636,7 @@
                                     </child>
                                     <child>
                                       <object class="AdwPreferencesGroup">
-                                        <child>
-                                          <object class="AdwComboRow" id="others_row">
-                                            <property name="activatable">False</property>
-                                            <property name="title" translatable="yes">Others</property>
-                                          </object>
-                                        </child>
+                                        <property name="title" translatable="yes">Other Users</property>
                                         <child>
                                           <object class="AdwComboRow" id="others_access_row">
                                             <property name="visible">False</property>
@@ -691,6 +682,7 @@
                                     </child>
                                     <child>
                                       <object class="AdwPreferencesGroup" id="change_permissions_enclosed_files_group">
+                                        <property name="visible">False</property>
                                         <child>
                                           <object class="AdwButtonRow">
                                             <property name="title" translatable="yes">Change Permissions for _Enclosed Files…</property>
@@ -743,6 +735,6 @@
           </object>
         </property>
       </object>
-    </child>
+    </property>
   </template>
 </interface>

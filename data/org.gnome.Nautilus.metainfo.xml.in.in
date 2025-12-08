@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>@appid@.desktop</id>
+  <id>@appid@</id>
   <metadata_license>CC0-1.0</metadata_license>
   <name>Files</name>
   <summary>Access and organize files</summary>
@@ -40,7 +40,7 @@
     <release version="@release-version@" date="@build-date@"/>
   -->
   <releases>
-    <release version="@release-version@" type="stable" date="2024-12-09"/>
+    <release version="@release-version@" type="development" date="2025-02-12"/>
   </releases>
   <project_group>GNOME</project_group>
   <project_license>GPL-3.0-or-later</project_license>
@@ -61,6 +61,10 @@
       <caption>Search</caption>
     </screenshot>
   </screenshots>
+  <branding>
+    <color type="primary" scheme_preference="light">#99c1f1</color>
+    <color type="primary" scheme_preference="dark">#1a5fb4</color>
+  </branding>
   <translation type="gettext">nautilus</translation>
   <kudos>
     <kudo>HiDpiIcon</kudo>
@@ -71,8 +75,11 @@
   <recommends>
     <control>keyboard</control>
     <control>pointing</control>
-    <control>touch</control>
   </recommends>
+  <supports>
+    <control>touch</control>
+    <control>tablet</control>
+  </supports>
   <requires>
     <display_length>360</display_length>
   </requires>
