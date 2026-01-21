@@ -1217,7 +1217,7 @@ file_and_directory_get_file (FileAndDirectory *fad)
 {
     g_return_val_if_fail (fad != NULL, NULL);
 
-    return nautilus_file_ref (fad->file);
+    return fad->file;
 }
 
 static void
@@ -4330,7 +4330,7 @@ real_remove_files (NautilusFilesView *self,
         }
     }
 
-    if (items != NULL)
+    if (g_hash_table_size (items) > 0)
     {
         nautilus_view_model_remove_items (priv->model, items, directory);
     }
@@ -4391,32 +4391,29 @@ process_pending_files (NautilusFilesView *view)
 
         for (GList *node = files_added; node != NULL; node = node->next)
         {
+            gboolean should_add_file;
             pending = node->data;
-            if (nautilus_file_is_gone (pending->file))
-            {
-                if (g_getenv ("G_MESSAGES_DEBUG") == NULL)
-                {
-                    g_warning ("Attempted to add a non-existent file to the view.");
-                }
-                else
-                {
-                    g_autofree char *uri = nautilus_file_get_uri (pending->file);
-                    g_warning ("Attempted to add non-existent file \"%s\" to the view.", uri);
-                }
 
-                continue;
-            }
-            if (!nautilus_files_view_should_show_file (view, pending->file))
+            should_add_file = still_should_show_file (view, pending);
+            if (should_add_file)
             {
-                continue;
+                pending_additions = g_list_prepend (pending_additions, pending->file);
             }
-            pending_additions = g_list_prepend (pending_additions, pending->file);
+
             /* Acknowledge the files that were pending to be revealed */
             if (g_hash_table_contains (priv->pending_reveal, pending->file))
             {
-                g_hash_table_insert (priv->pending_reveal,
-                                     pending->file,
-                                     GUINT_TO_POINTER (TRUE));
+                if (should_add_file)
+                {
+                    g_hash_table_insert (priv->pending_reveal,
+                                         pending->file,
+                                         GUINT_TO_POINTER (TRUE));
+                }
+                else
+                {
+                    g_hash_table_remove (priv->pending_reveal,
+                                         pending->file);
+                }
             }
         }
         pending_additions = g_list_reverse (pending_additions);
@@ -4482,7 +4479,7 @@ process_pending_files (NautilusFilesView *view)
             files = g_list_copy_deep (files_changed, (GCopyFunc) file_and_directory_get_file, NULL);
             send_selection_change = _g_lists_sort_and_check_for_intersection
                                         (&files, &selection);
-            nautilus_file_list_free (files);
+            g_list_free (files);
         }
 
         if (send_selection_change)
@@ -5972,7 +5969,7 @@ action_open_scripts_folder (GSimpleAction *action,
     }
 
     nautilus_application_open_location_full (NAUTILUS_APPLICATION (g_application_get_default ()),
-                                             location, 0, NULL, NULL, NULL);
+                                             location, 0, NULL, NULL, NULL, NULL);
 }
 
 static GFile *
@@ -6736,19 +6733,20 @@ action_run_in_terminal (GSimpleAction *action,
         return;
     }
 
-    old_working_dir = change_to_view_directory (view);
-
     uri = nautilus_file_get_activation_uri (NAUTILUS_FILE (selection->data));
     executable_path = g_filename_from_uri (uri, NULL, NULL);
     quoted_path = g_shell_quote (executable_path);
+    g_autofree char *executable_dir = g_path_get_dirname (executable_path);
 
     parent_window = nautilus_files_view_get_containing_window (view);
     display = gtk_widget_get_display (GTK_WIDGET (parent_window));
 
     g_debug ("Launching in terminal %s", quoted_path);
 
-    nautilus_launch_application_from_command (display, quoted_path, TRUE, NULL);
+    old_working_dir = g_get_current_dir ();
 
+    g_chdir (executable_dir);
+    nautilus_launch_application_from_command (display, quoted_path, TRUE, NULL);
     g_chdir (old_working_dir);
 }
 
@@ -8963,6 +8961,7 @@ load_directory (NautilusFilesView *view,
      */
     attributes =
         NAUTILUS_FILE_ATTRIBUTE_INFO |
+        NAUTILUS_FILE_ATTRIBUTE_THUMBNAIL_INFO |
         NAUTILUS_FILE_ATTRIBUTE_FILESYSTEM_INFO;
     nautilus_file_monitor_add (priv->directory_as_file,
                                &priv->directory_as_file,
@@ -10035,11 +10034,11 @@ nautilus_files_view_change (NautilusFilesView *self,
     /* Prepare empty page for reuse. It's not destroyed because we own it. */
     gtk_widget_unparent (priv->empty_view_page);
 
-    /* Destroy existing inner view (which is owned by the overlay) */
-    gtk_overlay_set_child (GTK_OVERLAY (priv->overlay), NULL);
-
     /* Avoid subfolder items showing up in grid view. */
     nautilus_view_model_expand_as_a_tree (priv->model, FALSE);
+
+    /* Destroy existing inner view (which is owned by the overlay) */
+    gtk_overlay_set_child (GTK_OVERLAY (priv->overlay), NULL);
     g_clear_pointer (&priv->subdirectories_loading, g_list_free);
     while (priv->subdirectory_list != NULL)
     {

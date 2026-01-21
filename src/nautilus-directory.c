@@ -580,14 +580,12 @@ NautilusFile *
 nautilus_directory_get_corresponding_file (NautilusDirectory *directory)
 {
     NautilusFile *file;
-    char *uri;
 
     file = nautilus_directory_get_existing_corresponding_file (directory);
     if (file == NULL)
     {
-        uri = nautilus_directory_get_uri (directory);
-        file = nautilus_file_get_by_uri (uri);
-        g_free (uri);
+        g_autoptr (GFile) location = nautilus_directory_get_location (directory);
+        file = nautilus_file_get (location);
     }
 
     return file;
@@ -600,7 +598,6 @@ NautilusFile *
 nautilus_directory_get_existing_corresponding_file (NautilusDirectory *directory)
 {
     NautilusFile *file;
-    char *uri;
 
     file = directory->details->as_file;
     if (file != NULL)
@@ -609,9 +606,9 @@ nautilus_directory_get_existing_corresponding_file (NautilusDirectory *directory
         return file;
     }
 
-    uri = nautilus_directory_get_uri (directory);
-    file = nautilus_file_get_existing_by_uri (uri);
-    g_free (uri);
+    g_autoptr (GFile) location = nautilus_directory_get_location (directory);
+    file = nautilus_file_get_existing (location);
+
     return file;
 }
 
@@ -1590,6 +1587,7 @@ nautilus_directory_notify_files_moved (GList *file_pairs)
             hash_table_list_prepend (changed_lists, directory, file);
             collect_parent_directories (parent_directories, directory);
         }
+        g_clear_object (&file);
 
         /* Update any directory objects that are affected. */
         affected_files = nautilus_directory_moved_internal (from_location,

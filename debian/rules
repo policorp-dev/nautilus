@@ -23,6 +23,9 @@ else
 ENABLE_CLOUD += -Dcloudproviders=true
 endif
 
+# test-files-view needs to write to dconf
+export HOME=$(CURDIR)/debian/build
+
 %:
 	dh $@
 
@@ -39,3 +42,6 @@ override_dh_auto_test:
 	GTK_A11Y=none dbus-run-session -- xvfb-run --auto-servernum dh_auto_test
 
 override_dh_gnome_clean:
+
+execute_after_dh_clean:
+	rm -rf $(CURDIR)/debian/build

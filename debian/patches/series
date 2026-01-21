@@ -1,2 +1,1 @@
-skip-tracker-test.patch
-use-pretty-name-to-set-osname.patch
+debian/Revert-test-Disable-localsearch-tracker-tests.patch
