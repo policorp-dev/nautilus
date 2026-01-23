@@ -43,7 +43,14 @@
 /* Keep async. jobs down to this number for all directories. */
 #define MAX_ASYNC_JOBS 10
 
-struct ThumbnailState
+struct ThumbnailInfoState
+{
+    NautilusDirectory *directory;
+    GCancellable *cancellable;
+    NautilusFile *file;
+};
+
+struct ThumbnailBufState
 {
     NautilusDirectory *directory;
     GCancellable *cancellable;
@@ -428,14 +435,26 @@ deep_count_cancel (NautilusDirectory *directory)
 }
 
 static void
-thumbnail_cancel (NautilusDirectory *directory)
+thumbnail_info_cancel (NautilusDirectory *directory)
 {
-    if (directory->details->thumbnail_state != NULL)
+    if (directory->details->thumbnail_info_state != NULL)
     {
-        g_cancellable_cancel (directory->details->thumbnail_state->cancellable);
-        directory->details->thumbnail_state->directory = NULL;
-        directory->details->thumbnail_state = NULL;
-        async_job_end (directory, "thumbnail");
+        g_cancellable_cancel (directory->details->thumbnail_info_state->cancellable);
+        directory->details->thumbnail_info_state->directory = NULL;
+        directory->details->thumbnail_info_state = NULL;
+        async_job_end (directory, "thumbnail info");
+    }
+}
+
+static void
+thumbnail_buf_cancel (NautilusDirectory *directory)
+{
+    if (directory->details->thumbnail_buf_state != NULL)
+    {
+        g_cancellable_cancel (directory->details->thumbnail_buf_state->cancellable);
+        directory->details->thumbnail_buf_state->directory = NULL;
+        directory->details->thumbnail_buf_state = NULL;
+        async_job_end (directory, "thumbnail buffer");
     }
 }
 
@@ -645,9 +664,16 @@ nautilus_directory_set_up_request (NautilusFileAttributes file_attributes)
         REQUEST_SET_TYPE (request, REQUEST_EXTENSION_INFO);
     }
 
-    if (file_attributes & NAUTILUS_FILE_ATTRIBUTE_THUMBNAIL)
+    if ((file_attributes & NAUTILUS_FILE_ATTRIBUTE_THUMBNAIL_INFO) != 0)
     {
-        REQUEST_SET_TYPE (request, REQUEST_THUMBNAIL);
+        REQUEST_SET_TYPE (request, REQUEST_THUMBNAIL_INFO);
+        REQUEST_SET_TYPE (request, REQUEST_FILE_INFO);
+    }
+
+    if (file_attributes & NAUTILUS_FILE_ATTRIBUTE_THUMBNAIL_BUFFER)
+    {
+        REQUEST_SET_TYPE (request, REQUEST_THUMBNAIL_BUFFER);
+        REQUEST_SET_TYPE (request, REQUEST_THUMBNAIL_INFO);
         REQUEST_SET_TYPE (request, REQUEST_FILE_INFO);
     }
 
@@ -786,7 +812,6 @@ static gboolean
 should_skip_file (GFileInfo *info)
 {
     static gboolean show_hidden_files_changed_callback_installed = FALSE;
-    gboolean is_hidden;
 
     /* Add the callback once for the life of our process */
     if (!show_hidden_files_changed_callback_installed)
@@ -802,13 +827,10 @@ should_skip_file (GFileInfo *info)
         show_hidden_files_changed_callback (NULL);
     }
 
-    is_hidden = g_file_info_get_attribute_boolean (info,
-                                                   G_FILE_ATTRIBUTE_STANDARD_IS_HIDDEN) ||
-                g_file_info_get_attribute_boolean (info,
-                                                   G_FILE_ATTRIBUTE_STANDARD_IS_BACKUP);
-    if (!show_hidden_files && is_hidden)
+    if (!show_hidden_files)
     {
-        return TRUE;
+        return g_file_info_get_attribute_boolean (info, G_FILE_ATTRIBUTE_STANDARD_IS_HIDDEN) ||
+               g_file_info_get_attribute_boolean (info, G_FILE_ATTRIBUTE_STANDARD_IS_BACKUP);
     }
 
     return FALSE;
@@ -1592,10 +1614,17 @@ nautilus_async_destroying_file (NautilusFile *file)
         changed = TRUE;
     }
 
-    if (directory->details->thumbnail_state != NULL &&
-        directory->details->thumbnail_state->file == file)
+    if (directory->details->thumbnail_info_state != NULL &&
+        directory->details->thumbnail_info_state->file == file)
     {
-        directory->details->thumbnail_state->file = NULL;
+        directory->details->thumbnail_info_state->file = NULL;
+        changed = TRUE;
+    }
+
+    if (directory->details->thumbnail_buf_state != NULL &&
+        directory->details->thumbnail_buf_state->file == file)
+    {
+        directory->details->thumbnail_buf_state->file = NULL;
         changed = TRUE;
     }
 
@@ -1660,9 +1689,16 @@ lacks_extension_info (NautilusFile *file)
 }
 
 static gboolean
-lacks_thumbnail (NautilusFile *file)
+lacks_thumbnail_info (NautilusFile *file)
 {
-    return file->details->thumbnail_path != NULL &&
+    return !file->details->thumbnail_info_is_up_to_date;
+}
+
+static gboolean
+lacks_thumbnail_buf (NautilusFile *file)
+{
+    return file->details->thumbnail_info_is_up_to_date &&
+           file->details->thumbnail_path != NULL &&
            !file->details->thumbnail_is_up_to_date &&
            nautilus_file_should_show_thumbnail (file);
 }
@@ -1753,9 +1789,17 @@ request_is_satisfied (NautilusDirectory *directory,
         }
     }
 
-    if (REQUEST_WANTS_TYPE (request, REQUEST_THUMBNAIL))
+    if (REQUEST_WANTS_TYPE (request, REQUEST_THUMBNAIL_INFO))
     {
-        if (has_problem (directory, file, lacks_thumbnail))
+        if (has_problem (directory, file, lacks_thumbnail_info))
+        {
+            return FALSE;
+        }
+    }
+
+    if (REQUEST_WANTS_TYPE (request, REQUEST_THUMBNAIL_BUFFER))
+    {
+        if (has_problem (directory, file, lacks_thumbnail_buf))
         {
             return FALSE;
         }
@@ -3121,9 +3165,181 @@ file_info_start (NautilusDirectory *directory,
 }
 
 static void
-thumbnail_done (NautilusDirectory *directory,
-                NautilusFile      *file,
-                GdkPixbuf         *pixbuf)
+thumbnail_info_state_free (ThumbnailInfoState *state)
+{
+    g_clear_object (&state->cancellable);
+    g_free (state);
+}
+
+static void
+thumbnail_info_stop (NautilusDirectory *directory)
+{
+    if (directory->details->thumbnail_info_state == NULL)
+    {
+        return;
+    }
+
+    NautilusFile *file = directory->details->thumbnail_info_state->file;
+
+    if (file != NULL)
+    {
+        g_assert (NAUTILUS_IS_FILE (file));
+        g_assert (file->details->directory == directory);
+
+        if (is_needy (file,
+                      lacks_thumbnail_info,
+                      REQUEST_THUMBNAIL_INFO))
+        {
+            return;
+        }
+    }
+
+    /* The info is not wanted, so stop it. */
+    thumbnail_info_cancel (directory);
+}
+
+static void
+thumbnail_info_done (NautilusDirectory *directory,
+                     NautilusFile      *file,
+                     GFileInfo         *info)
+{
+    file->details->thumbnail_info_is_up_to_date = TRUE;
+
+    nautilus_directory_async_state_changed (directory);
+}
+
+static void
+thumbnail_info_query_callback (GObject      *source_object,
+                               GAsyncResult *res,
+                               gpointer      user_data)
+{
+    ThumbnailInfoState *state = user_data;
+    gboolean changed = FALSE;
+
+    if (state->directory == NULL)
+    {
+        /* Operation was cancelled. Bail out */
+        thumbnail_info_state_free (state);
+        return;
+    }
+
+    g_autoptr (GError) error = NULL;
+    g_autoptr (GFileInfo) info = g_file_query_info_finish (G_FILE (source_object), res, &error);
+    g_autoptr (NautilusDirectory) directory = nautilus_directory_ref (state->directory);
+    g_autoptr (NautilusFile) file = nautilus_file_ref (state->file);
+
+    if (info != NULL && error == NULL)
+    {
+        changed = nautilus_file_update_thumbnail_info (state->file, info);
+    }
+
+    state->directory->details->thumbnail_info_state = NULL;
+    async_job_end (state->directory, "thumbnail info");
+
+    thumbnail_info_done (directory, file, info);
+
+    if (changed)
+    {
+        nautilus_file_changed (file);
+    }
+
+    thumbnail_info_state_free (state);
+}
+
+static void
+thumbnail_info_start (NautilusDirectory *directory,
+                      NautilusFile      *file,
+                      gboolean          *doing_io)
+{
+    if (directory->details->thumbnail_info_state != NULL)
+    {
+        *doing_io = TRUE;
+        return;
+    }
+
+    if (!is_needy (file,
+                   lacks_thumbnail_info,
+                   REQUEST_THUMBNAIL_INFO))
+    {
+        return;
+    }
+    *doing_io = TRUE;
+
+    if (!async_job_start (directory, "thumbnail info"))
+    {
+        return;
+    }
+
+    ThumbnailInfoState *state = g_new0 (ThumbnailInfoState, 1);
+    g_autoptr (GFile) location = nautilus_file_get_location (file);
+
+    state->directory = directory;
+    state->file = file;
+    state->cancellable = g_cancellable_new ();
+
+    directory->details->thumbnail_info_state = state;
+
+    g_file_query_info_async (location,
+                             "thumbnail::*",
+                             G_FILE_QUERY_INFO_NONE,
+                             G_PRIORITY_DEFAULT, state->cancellable,
+                             thumbnail_info_query_callback,
+                             state);
+}
+
+/* Currently, GDK Pixbuf will decode the image on the main thread, even when
+ * using the async variant of the function. Until that is fixed, use a GTask to
+ * perform the decoding in a different thread. */
+static void
+thumbnail_from_stream_at_scale_thread (GTask        *task,
+                                       gpointer      source_object,
+                                       gpointer      task_data,
+                                       GCancellable *cancellable)
+{
+    GInputStream *self = source_object;
+    gint size = GPOINTER_TO_INT (task_data);
+    GError *error = NULL;
+    GdkPixbuf *pixbuf = gdk_pixbuf_new_from_stream_at_scale (self,
+                                                             size, size,
+                                                             TRUE,
+                                                             cancellable,
+                                                             &error);
+
+    if (pixbuf != NULL)
+    {
+        g_task_return_pointer (task, pixbuf, g_object_unref);
+    }
+    else
+    {
+        g_task_return_error (task, error);
+    }
+}
+
+static void
+thumbnail_from_stream_at_scale_async (GInputStream        *stream,
+                                      gint32               size,
+                                      GCancellable        *cancellable,
+                                      GAsyncReadyCallback  callback,
+                                      gpointer             user_data)
+{
+    g_autoptr (GTask) task = NULL;
+
+    task = g_task_new (stream, cancellable, callback, user_data);
+    g_task_set_task_data (task, GINT_TO_POINTER (size), NULL);
+    g_task_run_in_thread (task, thumbnail_from_stream_at_scale_thread);
+}
+
+static GdkPixbuf *
+thumbnail_from_stream_at_scale_finish (GAsyncResult  *result,
+                                       GError       **error)
+{
+    return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+static void
+thumbnail_buf_done (NautilusDirectory *directory,
+                    NautilusFile      *file,
+                    GdkPixbuf         *pixbuf)
 {
     if (!nautilus_file_set_thumbnail (file, pixbuf))
     {
@@ -3134,28 +3350,28 @@ thumbnail_done (NautilusDirectory *directory,
 }
 
 static void
-thumbnail_stop (NautilusDirectory *directory)
+thumbnail_buf_stop (NautilusDirectory *directory)
 {
     NautilusFile *file;
 
-    if (directory->details->thumbnail_state != NULL)
+    if (directory->details->thumbnail_buf_state != NULL)
     {
-        file = directory->details->thumbnail_state->file;
+        file = directory->details->thumbnail_buf_state->file;
 
         if (file != NULL)
         {
             g_assert (NAUTILUS_IS_FILE (file));
             g_assert (file->details->directory == directory);
             if (is_needy (file,
-                          lacks_thumbnail,
-                          REQUEST_THUMBNAIL))
+                          lacks_thumbnail_buf,
+                          REQUEST_THUMBNAIL_BUFFER))
             {
                 return;
             }
         }
 
         /* The link info is not wanted, so stop it. */
-        thumbnail_cancel (directory);
+        thumbnail_buf_cancel (directory);
     }
 }
 
@@ -3167,7 +3383,7 @@ thumbnail_got_pixbuf (NautilusDirectory *directory,
     nautilus_directory_ref (directory);
 
     nautilus_file_ref (file);
-    thumbnail_done (directory, file, pixbuf);
+    thumbnail_buf_done (directory, file, pixbuf);
     nautilus_file_changed (file);
     nautilus_file_unref (file);
 
@@ -3180,7 +3396,7 @@ thumbnail_got_pixbuf (NautilusDirectory *directory,
 }
 
 static void
-thumbnail_state_free (ThumbnailState *state)
+thumbnail_buf_state_free (ThumbnailBufState *state)
 {
     g_object_unref (state->cancellable);
     g_free (state);
@@ -3191,17 +3407,17 @@ thumbnail_pixbuf_ready_callback (GObject      *source_object,
                                  GAsyncResult *res,
                                  gpointer      user_data)
 {
-    ThumbnailState *state = user_data;
+    ThumbnailBufState *state = user_data;
     GdkPixbuf *pixbuf = NULL, *pixbuf2;
 
     if (state->directory == NULL)
     {
         /* Operation was cancelled. Bail out */
-        thumbnail_state_free (state);
+        thumbnail_buf_state_free (state);
         return;
     }
 
-    pixbuf = gdk_pixbuf_new_from_stream_finish (res, NULL);
+    pixbuf = thumbnail_from_stream_at_scale_finish (res, NULL);
 
     if (pixbuf)
     {
@@ -3212,20 +3428,20 @@ thumbnail_pixbuf_ready_callback (GObject      *source_object,
 
     g_autoptr (NautilusDirectory) directory = nautilus_directory_ref (state->directory);
 
-    state->directory->details->thumbnail_state = NULL;
-    async_job_end (state->directory, "thumbnail");
+    state->directory->details->thumbnail_buf_state = NULL;
+    async_job_end (state->directory, "thumbnail buffer");
 
     thumbnail_got_pixbuf (state->directory, state->file, pixbuf);
 
-    thumbnail_state_free (state);
+    thumbnail_buf_state_free (state);
 }
 
 static void
-thumbnail_read_callback (GObject      *source_object,
-                         GAsyncResult *res,
-                         gpointer      user_data)
+thumbnail_file_read_callback (GObject      *source_object,
+                              GAsyncResult *res,
+                              gpointer      user_data)
 {
-    ThumbnailState *state;
+    ThumbnailBufState *state;
     g_autoptr (GFileInputStream) stream = NULL;
 
     state = user_data;
@@ -3233,7 +3449,7 @@ thumbnail_read_callback (GObject      *source_object,
     if (state->directory == NULL)
     {
         /* Operation was cancelled. Bail out */
-        thumbnail_state_free (state);
+        thumbnail_buf_state_free (state);
         return;
     }
 
@@ -3247,65 +3463,65 @@ thumbnail_read_callback (GObject      *source_object,
                                  NAUTILUS_GRID_ICON_SIZE_MEDIUM /
                                  NAUTILUS_GRID_ICON_SIZE_SMALL;
 
-        gdk_pixbuf_new_from_stream_at_scale_async (G_INPUT_STREAM (stream),
-                                                   max_thumbnail_size, max_thumbnail_size, TRUE,
-                                                   state->cancellable,
-                                                   thumbnail_pixbuf_ready_callback,
-                                                   state);
+        thumbnail_from_stream_at_scale_async (G_INPUT_STREAM (stream),
+                                              max_thumbnail_size,
+                                              state->cancellable,
+                                              thumbnail_pixbuf_ready_callback,
+                                              state);
     }
     else
     {
         g_autoptr (NautilusDirectory) directory = nautilus_directory_ref (state->directory);
 
-        state->directory->details->thumbnail_state = NULL;
-        async_job_end (state->directory, "thumbnail");
+        state->directory->details->thumbnail_buf_state = NULL;
+        async_job_end (state->directory, "thumbnail buffer");
 
         thumbnail_got_pixbuf (state->directory, state->file, NULL);
 
-        thumbnail_state_free (state);
+        thumbnail_buf_state_free (state);
     }
 }
 
 static void
-thumbnail_start (NautilusDirectory *directory,
-                 NautilusFile      *file,
-                 gboolean          *doing_io)
+thumbnail_buf_start (NautilusDirectory *directory,
+                     NautilusFile      *file,
+                     gboolean          *doing_io)
 {
     GFile *location;
-    ThumbnailState *state;
+    ThumbnailBufState *state;
 
-    if (directory->details->thumbnail_state != NULL)
+    if (directory->details->thumbnail_buf_state != NULL)
     {
         *doing_io = TRUE;
         return;
     }
 
     if (!is_needy (file,
-                   lacks_thumbnail,
-                   REQUEST_THUMBNAIL))
+                   lacks_thumbnail_buf,
+                   REQUEST_THUMBNAIL_BUFFER))
     {
         return;
     }
     *doing_io = TRUE;
 
-    if (!async_job_start (directory, "thumbnail"))
+    if (!async_job_start (directory, "thumbnail buffer"))
     {
         return;
     }
 
-    state = g_new0 (ThumbnailState, 1);
+    state = g_new0 (ThumbnailBufState, 1);
     state->directory = directory;
     state->file = file;
     state->cancellable = g_cancellable_new ();
 
     location = g_file_new_for_path (file->details->thumbnail_path);
 
-    directory->details->thumbnail_state = state;
+    directory->details->thumbnail_buf_state = state;
 
     g_file_read_async (location,
                        G_PRIORITY_DEFAULT,
                        state->cancellable,
-                       thumbnail_read_callback,
+                       thumbnail_file_read_callback,
                        state);
     g_object_unref (location);
 }
@@ -3828,7 +4044,8 @@ start_or_stop_io (NautilusDirectory *directory)
     deep_count_stop (directory);
     extension_info_stop (directory);
     mount_stop (directory);
-    thumbnail_stop (directory);
+    thumbnail_info_stop (directory);
+    thumbnail_buf_stop (directory);
     filesystem_info_stop (directory);
 
     doing_io = FALSE;
@@ -3839,6 +4056,7 @@ start_or_stop_io (NautilusDirectory *directory)
 
         /* Start getting attributes if possible */
         file_info_start (directory, file, &doing_io);
+        thumbnail_info_start (directory, file, &doing_io);
 
         if (doing_io)
         {
@@ -3857,8 +4075,8 @@ start_or_stop_io (NautilusDirectory *directory)
         mount_start (directory, file, &doing_io);
         directory_count_start (directory, file, &doing_io);
         deep_count_start (directory, file, &doing_io);
-        thumbnail_start (directory, file, &doing_io);
         filesystem_info_start (directory, file, &doing_io);
+        thumbnail_buf_start (directory, file, &doing_io);
 
         if (doing_io)
         {
@@ -3932,7 +4150,8 @@ nautilus_directory_cancel (NautilusDirectory *directory)
     file_list_cancel (directory);
     new_files_cancel (directory);
     extension_info_cancel (directory);
-    thumbnail_cancel (directory);
+    thumbnail_info_cancel (directory);
+    thumbnail_buf_cancel (directory);
     mount_cancel (directory);
     filesystem_info_cancel (directory);
 
@@ -3978,13 +4197,24 @@ cancel_file_info_for_file (NautilusDirectory *directory,
 }
 
 static void
-cancel_thumbnail_for_file (NautilusDirectory *directory,
-                           NautilusFile      *file)
+cancel_thumbnail_info_for_file (NautilusDirectory *directory,
+                                NautilusFile      *file)
 {
-    if (directory->details->thumbnail_state != NULL &&
-        directory->details->thumbnail_state->file == file)
+    if (directory->details->thumbnail_info_state != NULL &&
+        directory->details->thumbnail_info_state->file == file)
     {
-        thumbnail_cancel (directory);
+        thumbnail_info_cancel (directory);
+    }
+}
+
+static void
+cancel_thumbnail_buf_for_file (NautilusDirectory *directory,
+                               NautilusFile      *file)
+{
+    if (directory->details->thumbnail_buf_state != NULL &&
+        directory->details->thumbnail_buf_state->file == file)
+    {
+        thumbnail_buf_cancel (directory);
     }
 }
 
@@ -4039,9 +4269,14 @@ cancel_loading_attributes (NautilusDirectory      *directory,
         extension_info_cancel (directory);
     }
 
-    if (REQUEST_WANTS_TYPE (request, REQUEST_THUMBNAIL))
+    if (REQUEST_WANTS_TYPE (request, REQUEST_THUMBNAIL_INFO))
     {
-        thumbnail_cancel (directory);
+        thumbnail_info_cancel (directory);
+    }
+
+    if (REQUEST_WANTS_TYPE (request, REQUEST_THUMBNAIL_BUFFER))
+    {
+        thumbnail_buf_cancel (directory);
     }
 
     if (REQUEST_WANTS_TYPE (request, REQUEST_MOUNT))
@@ -4079,9 +4314,13 @@ nautilus_directory_cancel_loading_file_attributes (NautilusDirectory      *direc
     {
         cancel_filesystem_info_for_file (directory, file);
     }
-    if (REQUEST_WANTS_TYPE (request, REQUEST_THUMBNAIL))
+    if (REQUEST_WANTS_TYPE (request, REQUEST_THUMBNAIL_INFO))
     {
-        cancel_thumbnail_for_file (directory, file);
+        cancel_thumbnail_info_for_file (directory, file);
+    }
+    if (REQUEST_WANTS_TYPE (request, REQUEST_THUMBNAIL_BUFFER))
+    {
+        cancel_thumbnail_buf_for_file (directory, file);
     }
     if (REQUEST_WANTS_TYPE (request, REQUEST_MOUNT))
     {
@@ -4099,6 +4338,19 @@ nautilus_directory_add_file_to_work_queue (NautilusDirectory *directory,
 
     nautilus_hash_queue_enqueue (directory->details->high_priority_queue,
                                  file);
+}
+
+void
+nautilus_directory_prioritze_file (NautilusDirectory *directory,
+                                   NautilusFile      *file)
+{
+    g_return_if_fail (directory != NULL && file != NULL);
+    g_return_if_fail (NAUTILUS_IS_DIRECTORY (directory) && NAUTILUS_IS_FILE (file));
+    g_return_if_fail (file->details->directory == directory);
+
+    nautilus_hash_queue_move_existing_to_head (directory->details->high_priority_queue, file);
+    nautilus_hash_queue_move_existing_to_head (directory->details->low_priority_queue, file);
+    nautilus_hash_queue_move_existing_to_head (directory->details->extension_queue, file);
 }
 
 

@@ -37,6 +37,7 @@ struct _NautilusFileChooser
     NautilusMode mode;
     char *accept_label;
     char *suggested_name;
+    gboolean flag_initial_focus_done;
 
     GtkWidget *split_view;
     GtkWidget *places_sidebar;
@@ -150,6 +151,7 @@ mode_can_accept_current_directory (NautilusMode  mode,
     switch (mode)
     {
         case NAUTILUS_MODE_OPEN_FOLDER:
+        case NAUTILUS_MODE_OPEN_FOLDERS:
         case NAUTILUS_MODE_SAVE_FILE:
         case NAUTILUS_MODE_SAVE_FILES:
         {
@@ -160,7 +162,6 @@ mode_can_accept_current_directory (NautilusMode  mode,
 
         case NAUTILUS_MODE_OPEN_FILE:
         case NAUTILUS_MODE_OPEN_FILES:
-        case NAUTILUS_MODE_OPEN_FOLDERS:
         {
             return FALSE;
         }
@@ -251,6 +252,20 @@ ask_confirm_overwrite (NautilusFileChooser *self)
                              NULL, (GAsyncReadyCallback) on_overwrite_confirm_response, self);
 }
 
+static GFile *
+get_file_chooser_activation_location (NautilusFile *file)
+{
+    g_autoptr (GFile) location = nautilus_file_get_location (file);
+    const gchar *path = g_file_peek_path (location);
+
+    if (path != NULL)
+    {
+        return g_steal_pointer (&location);
+    }
+
+    return nautilus_file_get_activation_location (file);
+}
+
 static void
 on_accept_button_clicked (NautilusFileChooser *self)
 {
@@ -275,7 +290,9 @@ on_accept_button_clicked (NautilusFileChooser *self)
     {
         if (mode_can_accept_files (self->mode, selection))
         {
-            g_autolist (GFile) file_locations = g_list_copy_deep (selection, (GCopyFunc) nautilus_file_get_activation_location, NULL);
+            g_autolist (GFile) file_locations = g_list_copy_deep (selection,
+                                                                  (GCopyFunc) get_file_chooser_activation_location,
+                                                                  NULL);
 
             emit_accepted (self, file_locations);
         }
@@ -684,7 +701,12 @@ nautilus_file_chooser_grab_focus (GtkWidget *widget)
 {
     NautilusFileChooser *self = NAUTILUS_FILE_CHOOSER (widget);
 
-    if (self->slot != NULL)
+    if (self->mode == NAUTILUS_MODE_SAVE_FILE && !self->flag_initial_focus_done)
+    {
+        self->flag_initial_focus_done = TRUE;
+        open_filename_entry (self);
+    }
+    else if (self->slot != NULL)
     {
         return gtk_widget_grab_focus (GTK_WIDGET (self->slot));
     }

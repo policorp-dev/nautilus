@@ -53,9 +53,8 @@ update_icon (NautilusGridCell *self)
      */
     gtk_widget_set_size_request (self->fixed_height_box, icon_size, icon_size);
     gtk_widget_set_size_request (self->icon_bin, icon_size, icon_size);
-    if (nautilus_file_get_thumbnail_path (file) != NULL &&
-        nautilus_file_should_show_thumbnail (file) &&
-        nautilus_file_check_if_ready (file, NAUTILUS_FILE_ATTRIBUTE_THUMBNAIL))
+    if (nautilus_file_has_thumbnail (file) &&
+        nautilus_file_should_show_thumbnail (file))
     {
         gtk_widget_add_css_class (self->icon, "thumbnail");
     }
@@ -237,17 +236,11 @@ on_map_changed (GtkWidget *widget,
 
     NautilusFile *file = nautilus_view_item_get_file (item);
 
-    if (nautilus_file_is_thumbnailing (file))
+    if (nautilus_file_is_thumbnailing (file) ||
+        !nautilus_file_check_if_ready (file, NAUTILUS_FILE_ATTRIBUTE_THUMBNAIL_INFO) ||
+        !nautilus_file_check_if_ready (file, NAUTILUS_FILE_ATTRIBUTE_THUMBNAIL_BUFFER))
     {
-        g_autofree char *uri = nautilus_file_get_uri (file);
-        if (is_mapped)
-        {
-            nautilus_thumbnail_prioritize (uri);
-        }
-        else
-        {
-            nautilus_thumbnail_deprioritize (uri);
-        }
+        nautilus_view_item_prioritize (item, is_mapped);
     }
 }
 
