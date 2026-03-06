@@ -1,3 +1,9 @@
+nautilus (48.Policorp-4) unstable; urgency=medium
+
+  * added patch to use Linux as os_name
+
+ -- Edson Juliano Drosdeck <edson@policorp.com.br>  Fri, 06 Mar 2026 16:39:36 +0000
+
 nautilus (48.Policorp-3) unstable; urgency=medium
 
   * Updated to 48.3
