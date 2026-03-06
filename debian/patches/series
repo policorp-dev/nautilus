@@ -1,1 +1,2 @@
 debian/Revert-test-Disable-localsearch-tracker-tests.patch
+use-Linux-to-set-osname.patch
